@@ -1,0 +1,10 @@
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Resources
+stanza_resources/
+spacy-ents/
+spacy-deps/
