@@ -22,9 +22,12 @@ import os
 from pathlib import Path
 import re
 import shutil
+from typing import List
 
 import spacy
 from spacy import displacy
+from spacy.matcher import Matcher
+from spacy.util import filter_spans
 
 
 # Initializing the document annotator
@@ -156,3 +159,118 @@ show_ner(text, 'en_ner_jnlpba_md')
 
 # BIONLP13CG corpus
 show_ner(text, 'en_ner_bionlp13cg_md')
+
+# Rule-Based Matching
+# Using the `<DT>?<JJ.*>*<NN.*>+` POS tag pattern example from the nltk book to
+# capture noun chunks, where:
+#
+#  * `?` means zero or one of the previous pattern;
+#  * `*` means zero or more of the previous pattern;
+#  * `+` means one or more of the previous pattern;
+#  * `.` means any (single) character.
+#  * `<DT>?` - An optional determiner;
+#  * `<JJ.*>*` - Zero or more adjectives;
+#  * `<NN.*>+` - One or more nouns.
+#
+#  nltk-book: https://www.nltk.org/book/ch07.html
+
+# Loading the model
+# Using a model without NER capabilities to annotate the text
+nlp = spacy.load('en_core_sci_sm')
+doc = nlp(text)
+
+# Displaying the generic entities
+# The main pipelines `en_core_sci_sm|md|lg` come with the generic `ENTITY`
+# label
+Document = spacy.tokens.Doc
+Span = spacy.tokens.Span
+
+
+def print_all_entities(doc: Document):
+    """
+    Just a simple shortcut to list a document's entities
+
+    Arguments:
+        doc: Document
+            An annotated spacy document
+    """
+    print(' ID LABEL      TEXT')
+    for (i, ent) in enumerate(doc.ents):
+        print(f'{i+1:>3} {ent.label_:<10} {ent.text:<35}')
+
+
+print_all_entities(doc)
+
+
+# Matching chunks to POS tag rules
+def get_matched_pos_chunks(doc, pattern):
+    """
+    Get the list of chunks from the document that match the pattern
+
+    Overlapping spans will be filtered and the longest ones will be
+    returned on the list, for example, the text span
+
+        a mosquitocidal Bacillus thuringiensis
+
+    with PoS Tags
+
+        DT JJ JJ NN
+
+    will yield the following matches:
+
+        DT JJ JJ NN - a mosquitocidal Bacillus thuringiensis
+           JJ JJ NN -   mosquitocidal Bacillus thuringiensis
+              JJ NN -                 Bacillus thuringiensis
+                 NN -                          thuringiensis
+
+    This function will ignore the shorter overlaps and return the
+    longer. Not ideal but it gets the job done on this specific
+    case.
+
+    Arguments:
+        doc: Document
+            An annotated spacy document
+        pattern: Dict
+            A matcher pattern dictionary
+
+    Returns: List[Span]
+        The list matching chunks
+    """
+    matcher = Matcher(nlp.vocab)
+    matcher.add("CHUNKS", None, pattern)
+    matches = matcher(doc)
+    chunk_spans = list()
+
+    for (i, (match_id, start, end)) in enumerate(matches):
+        span = doc[start:end]
+        chunk_spans.append(span)
+
+    longest_spans = filter_spans(chunk_spans)
+    return longest_spans
+
+
+def pretty_print_chunks(chunk_spans: List[Span]):
+    """
+    Just a quick way to do a formatted print on a list of spacy Spans
+
+    Arguments:
+        chunk_spans: List[Span]
+            A list of chunk spans
+    """
+    print('      CHUNK POS TAGS | CHUNK TEXT')
+    for (i, span) in enumerate(chunk_spans):
+        pos_tags = ' '.join(t.tag_ for t in span)
+        print(f'{i+1:>4} {pos_tags:>15} | {span.text}')
+
+
+# The pattern definitions and results
+# Creating the dictionary containing the `<DT>?<JJ.*>*<NN.*>+` pattern and
+# filtering the annotated document for matching chunks.
+pattern = [
+    {"TAG": "DT", "OP": "?"},               # <DT>?
+    {"TAG": {"REGEX": "JJ.*"}, "OP": "*"},  # <JJ.*>*
+    {"TAG": {"REGEX": "NN.*"}, "OP": "+"}   # <NN.*>+
+]
+
+chunk_spans = get_matched_pos_chunks(doc, pattern)
+pretty_print_chunks(chunk_spans)
